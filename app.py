@@ -32,52 +32,68 @@ prompt = ChatPromptTemplate.from_template(
 )
 
 def vector_embedding(uploaded_file=None, url=None):
-    if "vectors" not in st.session_state:
+    # Only update the vector store if a new file or URL is provided
+    documents = []
+
+    if "embeddings" not in st.session_state:
         st.session_state.embeddings = HuggingFaceBgeEmbeddings(
             model_name="BAAI/bge-small-en-v1.5",
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True},
         )
 
-        documents = []
+    # Process uploaded PDF file
+    if uploaded_file:
+        # Save the uploaded file to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            tmp_file_path = tmp_file.name
 
-        # Process uploaded PDF file
-        if uploaded_file:
-            # Save the uploaded file to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                tmp_file_path = tmp_file.name
+        loader = PyPDFLoader(tmp_file_path)
+        documents += loader.load()
 
-            loader = PyPDFLoader(tmp_file_path)
-            documents += loader.load()
+    # Process URL
+    if url:
+        try:
+            web_loader = WebBaseLoader(url)
+            documents += web_loader.load()
+        except Exception as e:
+            st.error(f"Failed to load data from URL: {e}")
 
-        # Process URL
-        if url:
-            try:
-                web_loader = WebBaseLoader(url)
-                documents += web_loader.load()
-            except Exception as e:
-                st.error(f"Failed to load data from URL: {e}")
+    if not documents:
+        st.error("No documents to process.")
+        return
 
-        if not documents:
-            st.error("No documents to process.")
-            return
+    # Notify user that the database is being updated
+    st.write("Updating the Vector Store Database...")
 
-        # Split documents into chunks
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        final_documents = text_splitter.split_documents(documents)
+    # If there are already vectors, retrieve and combine old and new documents
+    if "documents" in st.session_state:
+        documents = st.session_state.documents + documents
 
-        # Create vector store from documents
-        st.session_state.vectors = FAISS.from_documents(final_documents, st.session_state.embeddings)
+    # Split documents into chunks
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    final_documents = text_splitter.split_documents(documents)
 
+    # Store documents in session state for future use
+    st.session_state.documents = documents
+
+    # Create vector store from documents (rebuild)
+    st.session_state.vectors = FAISS.from_documents(final_documents, st.session_state.embeddings)
+
+    # Notify user that the update is complete
+    st.write("Vector Store Database is updated and ready for use!")
+
+# Handle both URL and file upload
 uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
 url = st.text_input("Enter a URL")
 
+# Only update the vector store when a new file or URL is uploaded
 if uploaded_file or url:
     st.write("Processing the input...")
     vector_embedding(uploaded_file=uploaded_file, url=url)
-    st.write("Vector Store DB is Ready")
 
+# Question asking process (no vector store update)
 prompt1 = st.text_input("Enter the question from the uploaded document or URL")
 
 if prompt1 and "vectors" in st.session_state:
