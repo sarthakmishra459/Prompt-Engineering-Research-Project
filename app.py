@@ -7,7 +7,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import create_retrieval_chain
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyPDFLoader, WebBasedLoader
+from langchain_community.document_loaders import PyPDFLoader, WebBaseLoader
 from dotenv import load_dotenv
 import tempfile
 
@@ -54,7 +54,7 @@ def vector_embedding(uploaded_file=None, url=None):
         # Process URL
         if url:
             try:
-                web_loader = WebBasedLoader(url)
+                web_loader = WebBaseLoader(url)
                 documents += web_loader.load()
             except Exception as e:
                 st.error(f"Failed to load data from URL: {e}")
