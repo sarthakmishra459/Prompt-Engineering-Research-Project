@@ -31,6 +31,14 @@ prompt = ChatPromptTemplate.from_template(
     """
 )
 
+# Initialize session state variables if they don't exist
+if 'db_updated' not in st.session_state:
+    st.session_state.db_updated = False
+if 'db_updating' not in st.session_state:
+    st.session_state.db_updating = False
+if 'query_mode' not in st.session_state:
+    st.session_state.query_mode = ""
+
 # Function to process the document sources
 def vector_embedding(uploaded_file=None, url=None, abstract_text=None):
     documents = []
@@ -83,8 +91,10 @@ def vector_embedding(uploaded_file=None, url=None, abstract_text=None):
     # Update or create the vector store
     st.session_state.vectors = FAISS.from_documents(final_documents, st.session_state.embeddings)
 
-    st.write("Vector Store Database is updated and ready for use!")
-
+    st.session_state.db_updated = True  # Mark database as updated
+    st.session_state.db_updating = False  # Database update is finished
+    st.session_state.query_mode = "" 
+    st.write("Vector Database Updated")
 
 # New abstract text input section
 abstract_text = st.text_area("Enter abstract text (optional)")
@@ -93,22 +103,32 @@ abstract_text = st.text_area("Enter abstract text (optional)")
 uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
 url = st.text_input("Enter a URL")
 
-# If any new file, URL, or text is added, clear the query_mode and update
+# If any new file, URL, or text is added, clear the query_mode, update db, and restrict query
 if uploaded_file or url or abstract_text:
-    if 'query_mode' in st.session_state:  # Only clear if there's something to clear
-        st.session_state.query_mode = ""  # Clear query mode
+    st.session_state.query_mode = ""  # Clear query mode
+    st.session_state.db_updated = False  # Reset the database updated flag
+    st.session_state.db_updating = True  # Mark the database as updating
     st.write("Processing the input...")
+
+    # Call vector_embedding to update the vector store asynchronously
     vector_embedding(uploaded_file=uploaded_file, url=url, abstract_text=abstract_text)
-    #st.experimental_rerun()  # Force the rerun to reflect the cleared state
 
 # Track whether an update is needed
-if 'query_mode' not in st.session_state:
-    st.session_state.query_mode = ""  # Initialize query_mode state
+query_mode_disabled = not st.session_state.db_updated or st.session_state.db_updating
 
-query_mode = st.text_input("Enter the question from the uploaded document or URL", value=st.session_state.query_mode)
+# Disable query input while updating the vector store
+query_mode = st.text_input(
+    "Enter the question from the uploaded document or URL", 
+    value=st.session_state.query_mode, 
+    disabled=query_mode_disabled
+)
 
-# Process question if vector store is available
-if query_mode and "vectors" in st.session_state:
+# Show a message while the vector store is updating
+if st.session_state.db_updating:
+    st.write("Database is currently updating, please wait...")
+
+# Process query if vector store is available and query is allowed
+if query_mode and "vectors" in st.session_state and st.session_state.db_updated:
     import time
 
     start = time.process_time()
@@ -130,6 +150,3 @@ if query_mode and "vectors" in st.session_state:
         for i, doc in enumerate(response["context"]):
             st.write(doc.page_content)
             st.write("----------------------------------")
-    query_mode = st.empty()
-    time.sleep(5)
-    
